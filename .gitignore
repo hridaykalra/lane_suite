@@ -1,0 +1,37 @@
+# Virtual environments (regenerate from requirements.txt instead)
+venv/
+*/venv/
+**/venv/
+
+# Model weights (large files — hosted separately, see README)
+weights/
+**/weights/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs and shell history
+*.log
+.bash_history
+.python_history
+.xdm-global-lock
+
+# Output folders (regenerated when models run)
+**/output/
+common_input/*
+!common_input/.gitkeep
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Model 2's weight files (non-standard folder names)
+**/pretrained/*.tar
+**/trained/*.tar
+
+# Training/eval file lists from original ERFNet repo — not needed for inference
+**/list/train_gt.txt
+**/list/test_img.txt
+**/list/val_gt.txt
