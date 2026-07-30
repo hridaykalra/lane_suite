@@ -94,4 +94,11 @@ MODELS = {
         "python": _model_dir("6_yolop") / VENV_PYTHON,
         "script": _model_dir("6_yolop") / "repo" / "infer_yolop.py",
     },
+
+        "7": {
+        "label": "Ultra-Fast-Lane-Detection-v2 (PyTorch, CULane) — GPU required",
+        "folder": _model_dir("7_ufld_v2"),
+        "python": _model_dir("7_ufld_v2") / VENV_PYTHON,
+        "script": _model_dir("7_ufld_v2") / "repo" / "infer_folder.py",
+    },
 }

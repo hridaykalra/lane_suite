@@ -1,6 +1,6 @@
 # LaneSuite
 
-A single, menu-driven interface to run six different lane-detection models — SCNN, ERFNet, three ENet-SAD variants, and YOLOP — without needing to juggle their conflicting dependencies yourself.
+A single, menu-driven interface to run seven different lane-detection models — SCNN, ERFNet, three ENet-SAD variants, YOLOP, and Ultra-Fast-Lane-Detection-v2 — without needing to juggle their conflicting dependencies yourself.
 
 Each model was originally built for a different, mutually incompatible environment (TensorFlow 1.x on Python 3.7, modern PyTorch, and Lua Torch7). Rather than force them into one shared environment, LaneSuite keeps each model in its own isolated environment and launches the right one automatically when you pick it from the menu.
 
@@ -14,6 +14,7 @@ Each model was originally built for a different, mutually incompatible environme
 | 4 | ENet-SAD | Lua Torch7 | TuSimple |
 | 5 | ENet-SAD | Lua Torch7 | BDD100K |
 | 6 | YOLOP | PyTorch | Lane + drivable area + object detection |
+| 7 | Ultra-Fast-Lane-Detection-v2 | PyTorch | CULane — **requires a GPU** |
 
 ## Project structure
 
@@ -45,6 +46,12 @@ lane-suite/
     └── 6_yolop/
         ├── repo/
         ├── weights/
+        ├── venv/
+        └── requirements.txt
+    └── 7_ufld_v2/
+        ├── repo/                # cloned from cfzd/Ultra-Fast-Lane-Detection-v2
+        ├── weights/               # culane_res34.pth goes here
+        ├── dali_stub/             # workaround for an unused training-only import — see setup below
         ├── venv/
         └── requirements.txt
 ```
@@ -81,7 +88,7 @@ cd lane-suite
 
 ### 2. Download the model weights
 
-Model weights are hosted separately (too large for a git repository) on Hugging Face:
+Model weights for models 1–6 are hosted separately (too large for a git repository) on Hugging Face:
 
 **[ALTF4-pro/lane-suite-weights](https://huggingface.co/ALTF4-pro/lane-suite-weights)**
 
@@ -95,6 +102,12 @@ Download the weights for whichever models you want to run, and place them in the
 | 4 – ENet TuSimple | `models/4_enet_tusimple/weights/` |
 | 5 – ENet BDD100K | `models/5_enet_bdd100k/weights/` |
 | 6 – YOLOP | `models/6_yolop/weights/` |
+
+**Model 7 (UFLDv2)** uses the original authors' own pretrained checkpoint instead, linked directly from their repo:
+
+- [CULane, ResNet34, F1 76.0 (Google Drive)](https://drive.google.com/file/d/1AjnvAD3qmqt_dGPveZJsLZ1bOyWv62Yj/view?usp=sharing)
+
+Download it and place it at `models/7_ufld_v2/weights/culane_res34.pth`.
 
 ### 3. Set up each model's environment
 
@@ -126,6 +139,25 @@ venv\Scripts\python.exe -m pip install -r requirements.txt
 cd ../..
 ```
 
+**Model 7 (Ultra-Fast-Lane-Detection-v2) — requires a GPU:**
+
+This model's own architecture code calls `.cuda()` unconditionally, so it cannot run — or even build — on a CPU-only machine. Only set this one up if your machine has a CUDA-capable GPU.
+
+```bash
+cd models/7_ufld_v2
+py -3.11 -m venv venv
+venv\Scripts\python.exe -m pip install -r requirements.txt
+cd ../..
+```
+
+**Extra one-time step for model 7 only:** the original repo's code imports NVIDIA DALI (a fast-dataloading library) at the top of a file that's shared between training and inference — even though inference never actually uses it. Rather than requiring you to install the full DALI library just to satisfy an unused import, this repo ships a tiny stub in `models/7_ufld_v2/dali_stub/` that satisfies the import without doing anything. Copy it into your venv's site-packages once, after installing requirements:
+
+```bash
+cp -r models/7_ufld_v2/dali_stub/nvidia models/7_ufld_v2/venv/Lib/site-packages/nvidia
+```
+
+(macOS/Linux: the destination is `models/7_ufld_v2/venv/lib/pythonX.X/site-packages/nvidia` instead.)
+
 (macOS/Linux: replace `venv\Scripts\python.exe` with `venv/bin/python` throughout.)
 
 ## Usage
@@ -150,6 +182,7 @@ Output is written to that model's own `output/` folder inside its `models/<n>_..
 
 - **Models 3, 4, 5 are CPU-only by default on Windows**, as explained above — this is a Torch7/Windows limitation, not a limitation of this project's code, which already supports GPU automatically if a CUDA-enabled Torch7 build is used.
 - Model 1 requires Python 3.7 specifically, due to TensorFlow 1.15's version constraints.
+- **Model 7 requires a GPU, with no CPU fallback** — its own architecture code calls `.cuda()` unconditionally, so it cannot even build on a CPU-only machine, let alone run inference.
 
 ## Credits
 
@@ -157,6 +190,7 @@ This project is an orchestration layer around the following original work — al
 
 - Models 1–5 (SCNN, ERFNet, ENet-SAD): [cardwing/Codes-for-Lane-Detection](https://github.com/cardwing/Codes-for-Lane-Detection) — *"Learning Lightweight Lane Detection CNNs by Self Attention Distillation" (ICCV 2019)*
 - Model 6 (YOLOP): [hustvl/YOLOP](https://github.com/hustvl/YOLOP) — MIT licensed
+- Model 7 (Ultra-Fast-Lane-Detection-v2): [cfzd/Ultra-Fast-Lane-Detection-v2](https://github.com/cfzd/Ultra-Fast-Lane-Detection-v2) — MIT licensed
 
 ## License
 
