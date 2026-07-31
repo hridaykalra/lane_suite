@@ -1,18 +1,21 @@
 """
 infer_folder_letterbox.py  (model 7: Ultra-Fast-Lane-Detection-v2, CULane, PyTorch)
 
-Variant of infer_folder.py using LETTERBOX PADDING for the output
-visualization, instead of either (a) force-stretching to CULane's
-fixed 1640x590 size, or (b) leaving the image at native resolution.
+Letterbox-padding variant of infer_folder.py, for input images with an
+aspect ratio very different from CULane's native 1640x590 (~2.78:1).
+Pads the image (black bars) to match that ratio instead of stretching
+or leaving it at native resolution -- keeps proportions correct.
 
-Why: CULane's model expects/predicts coordinates in a 2.78:1 (1640x590)
-aspect ratio space. If your source images have a very different aspect
-ratio, keeping them at native resolution (as in the plain fix) can look
-slightly off since the model's internal "sense" of proportions doesn't
-match your photo's proportions. Letterboxing pads the image (with black
-bars) up to CULane's aspect ratio FIRST, so the coordinate space and the
-image proportions match exactly -- no stretching, no distortion, just
-padding.
+Includes:
+  - The bottom-crop fix matching LaneTestDataset's own preprocessing
+    (img[:, -crop_size:, :] after resize) -- required for the model's
+    internal dimension math to line up; without it you get a
+    "shape '[-1, 4000]' is invalid for input of size 6800" error.
+  - CPU/GPU auto-detection (DEVICE) -- runs on CPU if no CUDA GPU is
+    present (slower, but works), and will automatically use a GPU if
+    one is available instead. Requires the matching change in
+    model/model_culane.py's get_model() (net.to(device) instead of
+    a hardcoded .cuda()).
 
 Run with:  python infer_folder_letterbox.py
 """
@@ -23,7 +26,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import cv2
-from PIL import Image
+from PIL import Image, ImageOps
 import torchvision.transforms as transforms
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -68,14 +71,17 @@ TARGET_ASPECT = IMG_W / IMG_H  # ~2.7797
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
+# Auto-detect GPU vs CPU once, at module load time. Everything else in
+# this file reads this instead of calling .cuda() directly, so it runs
+# on either device without further changes.
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 
 def letterbox_to_aspect(img, target_aspect):
     """
     Pad `img` (a cv2/numpy BGR image) with black bars so its aspect
     ratio matches `target_aspect`, WITHOUT stretching or cropping any
-    original content. Returns (padded_img, pad_left, pad_top, scale)
-    where scale is always 1.0 here since we only pad, never resize --
-    kept for clarity/symmetry with the coordinate-mapping step below.
+    original content. Returns (padded_img, pad_left, pad_top).
 
     Padding is added either left/right (if the image is relatively too
     tall/narrow) or top/bottom (if relatively too wide/short) so the
@@ -163,12 +169,9 @@ def banner():
 
 
 def load_model():
-    if not torch.cuda.is_available():
-        raise RuntimeError(
-            "No CUDA-capable GPU detected. Model 7 (UFLDv2) requires a GPU "
-            "machine to run -- this is a project requirement, not a code bug. "
-            "See the README's hardware notes for details."
-        )
+    if DEVICE.type == 'cpu':
+        print("WARNING: No CUDA-capable GPU detected. Running on CPU instead -- "
+              "this will be significantly slower than GPU inference.\n")
 
     if not WEIGHTS_PATH.exists():
         raise FileNotFoundError(
@@ -189,7 +192,7 @@ def load_model():
             compatible_state_dict[k] = v
 
     net.load_state_dict(compatible_state_dict, strict=False)
-    net.cuda()
+    net.to(DEVICE)
     net.eval()
 
     print("Model loaded successfully.\n")
@@ -198,7 +201,8 @@ def load_model():
 
 def main():
     banner()
-    torch.backends.cudnn.benchmark = True
+    if DEVICE.type == 'cuda':
+        torch.backends.cudnn.benchmark = True
 
     net = load_model()
 
@@ -215,6 +219,7 @@ def main():
         if p.suffix.lower() in IMAGE_EXTENSIONS
     )
 
+    print(f"Device       : {DEVICE}")
     print(f"Input Folder : {INPUT_DIR}")
     print(f"Output Folder: {OUTPUT_DIR}")
     print(f"Images Found : {len(images)}\n")
@@ -228,19 +233,33 @@ def main():
     for img_path in images:
         print(f"Processing : {img_path.name}")
         try:
-            # ---- Model input: unchanged, still the direct stretch resize
-            # the checkpoint was trained on. Do not touch this part. ----
-            pil_img = Image.open(img_path).convert("RGB")
+            # ---- Model input: resize (matches training), then bottom-crop
+            # down to train_height -- this matches LaneTestDataset's own
+            # preprocessing (img[:, -crop_size:, :]) and is REQUIRED for
+            # the model's internal dimension math to line up. ----
+            # exif_transpose() rotates the image according to its EXIF
+            # orientation tag -- phone photos are frequently saved with
+            # portrait pixel dimensions plus a "rotate 90" EXIF flag, and
+            # without this correction both PIL and cv2 load them sideways,
+            # which silently wrecks both the model input and the letterbox
+            # padding (huge black bars, misaligned predictions).
+            pil_img = Image.open(img_path)
+            pil_img = ImageOps.exif_transpose(pil_img)
+            pil_img = pil_img.convert("RGB")
             input_tensor = img_transforms(pil_img)
-            input_tensor = input_tensor.unsqueeze(0).cuda()
+            input_tensor = input_tensor[:, -cfg.train_height:, :]
+            input_tensor = input_tensor.unsqueeze(0).to(DEVICE)
 
             with torch.no_grad():
                 pred = net(input_tensor)
 
             # ---- Visualization: letterbox pad to CULane's aspect ratio
-            # instead of stretching (old bug) or leaving native-res
-            # (plain fix) — keeps proportions correct with no distortion.
-            raw = cv2.imread(str(img_path))
+            # instead of stretching (old bug) or leaving native-res —
+            # keeps proportions correct with no distortion. ----
+            # Load through the same EXIF-corrected PIL image (converted to
+            # cv2/BGR) instead of cv2.imread(), which ignores EXIF entirely.
+            raw = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+            print(f"  Corrected raw image shape (h, w): {raw.shape[:2]}")
             vis, pad_left, pad_top = letterbox_to_aspect(raw, TARGET_ASPECT)
             padded_h, padded_w = vis.shape[:2]
 

@@ -66,6 +66,7 @@ cfg.row_anchor = np.linspace(0.42, 1, cfg.num_row)
 cfg.col_anchor = np.linspace(0, 1, cfg.num_col)
 
 IMG_W, IMG_H = 1640, 590   # CULane's native image size — coordinates are scaled to this
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
@@ -126,12 +127,9 @@ def banner():
 
 
 def load_model():
-    if not torch.cuda.is_available():
-        raise RuntimeError(
-            "No CUDA-capable GPU detected. Model 7 (UFLDv2) requires a GPU "
-            "machine to run -- this is a project requirement, not a code bug. "
-            "See the README's hardware notes for details."
-        )
+    if DEVICE.type == 'cpu':
+        print("WARNING: No CUDA-capable GPU detected. Running on CPU instead -- "
+            "this will be significantly slower than GPU inference.\n")
 
     if not WEIGHTS_PATH.exists():
         raise FileNotFoundError(
@@ -152,7 +150,7 @@ def load_model():
             compatible_state_dict[k] = v
 
     net.load_state_dict(compatible_state_dict, strict=False)
-    net.cuda()
+    net.to(DEVICE)
     net.eval()
 
     print("Model loaded successfully.\n")
@@ -193,21 +191,22 @@ def main():
         try:
             pil_img = Image.open(img_path).convert("RGB")
             input_tensor = img_transforms(pil_img)
-            input_tensor = input_tensor.unsqueeze(0).cuda()
+            input_tensor = input_tensor[:, -cfg.train_height:, :]
+            input_tensor = input_tensor.unsqueeze(0).to(DEVICE)
 
             with torch.no_grad():
                 pred = net(input_tensor)
 
             vis = cv2.imread(str(img_path))
-            vis = cv2.resize(vis, (IMG_W, IMG_H))
+            orig_h, orig_w = vis.shape[:2]   # use the image's OWN native size, not CULane's fixed size
 
             coords = pred2coords(
                 pred, cfg.row_anchor, cfg.col_anchor,
-                original_image_width=IMG_W, original_image_height=IMG_H
+                original_image_width=orig_w, original_image_height=orig_h
             )
             for lane in coords:
                 for coord in lane:
-                    cv2.circle(vis, coord, 5, (0, 255, 0), -1)
+                    cv2.circle(vis, coord, 10, (0, 255, 0), -1)
 
             out_path = OUTPUT_DIR / f"{img_path.stem}_overlay.jpg"
             cv2.imwrite(str(out_path), vis)
