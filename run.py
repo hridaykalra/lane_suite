@@ -9,9 +9,17 @@ and output folder paths are hardcoded inside that script itself
 (pointing at the shared common_input/ folder and that model's own
 models/<n>/output/ folder). This file doesn't pass any paths.
 
+Models can register EITHER a single "script" (most models) OR a
+"scripts" dict of numbered variants (currently models 7 and 8). If a
+model has "scripts", after you pick that model number you'll get a
+second numbered prompt asking which script to run. Models with a plain
+"script" skip straight to running, exactly as before.
+
 Usage:
     python run.py            -> shows menu, prompts for a number
-    python run.py --model 1  -> skips the prompt, runs model 1 directly
+    python run.py --model 1  -> skips the model prompt, runs model 1 directly
+                                 (still prompts for script choice if that
+                                 model has multiple "scripts" registered)
 """
 
 import argparse
@@ -27,6 +35,30 @@ def print_menu() -> None:
     for number, info in MODELS.items():
         print(f"  [{number}] {info['label']}")
     print()
+
+
+def print_script_menu(info: dict) -> None:
+    print(f"\nScripts available for {info['label']}:")
+    for number, s in info["scripts"].items():
+        print(f"  [{number}] {s['label']}")
+    print()
+
+
+def resolve_script(info: dict):
+    """
+    Returns the Path to the infer script to run. If this model has multiple
+    registered scripts ("scripts" key), prompts for which one. Otherwise
+    just returns its single "script" path -- unchanged behavior.
+    """
+    if "scripts" in info:
+        scripts = info["scripts"]
+        print_script_menu(info)
+        choice = input("Enter the number of the script to run: ").strip()
+        if choice not in scripts:
+            print(f"'{choice}' is not a valid choice. Valid options: {', '.join(scripts)}")
+            sys.exit(1)
+        return scripts[choice]["path"]
+    return info["script"]
 
 
 def build_env(info: dict) -> dict:
@@ -63,7 +95,7 @@ def run_model(number: str) -> None:
 
     info = MODELS[number]
     python_exe = info["python"]
-    script = info["script"]
+    script = resolve_script(info)
 
     if not python_exe.exists():
         print(f"Error: interpreter not found at {python_exe}")
@@ -72,7 +104,7 @@ def run_model(number: str) -> None:
 
     if not script.exists():
         print(f"Error: infer script not found at {script}")
-        print("Update the 'script' path in model_registry.py to match where your infer script actually lives.")
+        print("Update the matching path in model_registry.py to match where your infer script actually lives.")
         sys.exit(1)
 
     print(f"\nRunning [{number}] {info['label']} ...")

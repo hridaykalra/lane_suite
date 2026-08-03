@@ -6,6 +6,16 @@ aspect ratio very different from CULane's native 1640x590 (~2.78:1).
 Pads the image (black bars) to match that ratio instead of stretching
 or leaving it at native resolution -- keeps proportions correct.
 
+BUG FIX (this version): padding used to be applied only for the
+visualization image, while the model itself ran on the raw unpadded
+photo. Predictions came back in raw-image coordinate space but were
+then rescaled/drawn using the padded canvas's dimensions -- two
+different coordinate spaces getting mixed, causing misaligned points
+that got worse or better depending on how much padding a given photo
+happened to need. Fixed by padding BEFORE building the model input, so
+the model sees the same padded image that coordinates get scaled
+against and drawn onto.
+
 Includes:
   - The bottom-crop fix matching LaneTestDataset's own preprocessing
     (img[:, -crop_size:, :] after resize) -- required for the model's
@@ -233,10 +243,6 @@ def main():
     for img_path in images:
         print(f"Processing : {img_path.name}")
         try:
-            # ---- Model input: resize (matches training), then bottom-crop
-            # down to train_height -- this matches LaneTestDataset's own
-            # preprocessing (img[:, -crop_size:, :]) and is REQUIRED for
-            # the model's internal dimension math to line up. ----
             # exif_transpose() rotates the image according to its EXIF
             # orientation tag -- phone photos are frequently saved with
             # portrait pixel dimensions plus a "rotate 90" EXIF flag, and
@@ -246,22 +252,35 @@ def main():
             pil_img = Image.open(img_path)
             pil_img = ImageOps.exif_transpose(pil_img)
             pil_img = pil_img.convert("RGB")
-            input_tensor = img_transforms(pil_img)
+
+            # ---- Letterbox pad FIRST, then feed the PADDED image to the
+            # model. (Bug fix: this used to pad only for visualization,
+            # while the model ran on the raw unpadded image -- so
+            # predictions came back in raw-image coordinate space but got
+            # rescaled and drawn as if the canvas were the padded one.
+            # Two different coordinate spaces getting mixed = misaligned,
+            # inconsistent-looking output. Now the model actually sees
+            # what we're padding for, and everything downstream uses the
+            # same padded canvas dimensions throughout.) ----
+            raw = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+            padded, pad_left, pad_top = letterbox_to_aspect(raw, TARGET_ASPECT)
+            padded_h, padded_w = padded.shape[:2]
+            print(f"  Raw shape (h, w): {raw.shape[:2]}  ->  padded (h, w): {padded_h, padded_w}")
+
+            # ---- Model input: resize (matches training), then bottom-crop
+            # down to train_height -- this matches LaneTestDataset's own
+            # preprocessing (img[:, -crop_size:, :]) and is REQUIRED for
+            # the model's internal dimension math to line up. ----
+            pil_padded = Image.fromarray(cv2.cvtColor(padded, cv2.COLOR_BGR2RGB))
+            input_tensor = img_transforms(pil_padded)
             input_tensor = input_tensor[:, -cfg.train_height:, :]
             input_tensor = input_tensor.unsqueeze(0).to(DEVICE)
 
             with torch.no_grad():
                 pred = net(input_tensor)
 
-            # ---- Visualization: letterbox pad to CULane's aspect ratio
-            # instead of stretching (old bug) or leaving native-res —
-            # keeps proportions correct with no distortion. ----
-            # Load through the same EXIF-corrected PIL image (converted to
-            # cv2/BGR) instead of cv2.imread(), which ignores EXIF entirely.
-            raw = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-            print(f"  Corrected raw image shape (h, w): {raw.shape[:2]}")
-            vis, pad_left, pad_top = letterbox_to_aspect(raw, TARGET_ASPECT)
-            padded_h, padded_w = vis.shape[:2]
+            # Visualize on the same padded image the model actually saw.
+            vis = padded
 
             coords = pred2coords(
                 pred, cfg.row_anchor, cfg.col_anchor,
@@ -269,7 +288,7 @@ def main():
             )
             for lane in coords:
                 for coord in lane:
-                    cv2.circle(vis, coord, 5, (0, 255, 0), -1)
+                    cv2.circle(vis, coord, 12, (0, 0, 255), -1)
 
             out_path = OUTPUT_DIR / f"{img_path.stem}_overlay.jpg"
             cv2.imwrite(str(out_path), vis)
