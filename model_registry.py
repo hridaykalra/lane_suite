@@ -141,4 +141,18 @@ MODELS = {
             },
         },
     },
+
+    "9": {
+        
+        "label": "SCNN (Torch7, VGG-16, CULane) — GPU if available, else CPU",
+        "folder": _model_dir("9_scnn_culane"),
+        "python": Path(r"C:\torch\bin\luajit.exe"),
+        "script": _model_dir("9_scnn_culane") / "repo" / "infer_folder.lua",
+        "env": {
+            "LUA_CPATH": "C:/torch/bin/?.dll;;",
+            "LUA_DEV": "C:/torch",
+            "LUA_PATH": "C:/torch/lua/?;C:/torch/lua/?.lua;C:/torch/lua/?/init.lua;;",
+            "PATH_PREPEND": r"C:\torch\bin",
+        },
+    },
 }
