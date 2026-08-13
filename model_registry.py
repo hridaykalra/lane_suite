@@ -143,16 +143,12 @@ MODELS = {
     },
 
     "9": {
-        
-        "label": "SCNN (Torch7, VGG-16, CULane) — GPU if available, else CPU",
+        # infer_folder.py now uses fixed paths (like model 6) and is
+        # called with zero arguments -- no CLI args to pass here.
+        # Auto-detects GPU vs CPU at runtime.
+        "label": "SCNN (PyTorch, VGG-16, CULane)",
         "folder": _model_dir("9_scnn_culane"),
-        "python": Path(r"C:\torch\bin\luajit.exe"),
-        "script": _model_dir("9_scnn_culane") / "repo" / "infer_folder.lua",
-        "env": {
-            "LUA_CPATH": "C:/torch/bin/?.dll;;",
-            "LUA_DEV": "C:/torch",
-            "LUA_PATH": "C:/torch/lua/?;C:/torch/lua/?.lua;C:/torch/lua/?/init.lua;;",
-            "PATH_PREPEND": r"C:\torch\bin",
-        },
+        "python": Path(r"C:\Users\hrida\AppData\Local\Programs\Python\Python37\python.exe"),
+        "script": _model_dir("9_scnn_culane") / "repo" / "infer_folder.py",
     },
 }

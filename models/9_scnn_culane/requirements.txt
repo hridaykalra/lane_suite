@@ -1,0 +1,6 @@
+numpy<=1.21.6
+Pillow<=9.5.0
+# CPU-only machine: torch==1.10.2 (default PyPI wheel)
+# GPU machine: install the matching CUDA build instead, e.g.
+#   pip install torch==1.10.2+cu113 -f https://download.pytorch.org/whl/torch_stable.html
+torch==1.10.2
